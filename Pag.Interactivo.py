@@ -707,6 +707,7 @@ def _crear_mapa(datos):
         folium.GeoJson(
             provincias, name="Límites provinciales",
             style_function=lambda feature: {"fillOpacity": 0, "color": "#ffffff", "weight": 1.3, "opacity": 0.9},
+            interactive=False,
         ).add_to(mapa)
 
     html_leyenda = """
