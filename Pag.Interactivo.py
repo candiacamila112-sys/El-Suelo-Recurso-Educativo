@@ -1039,7 +1039,7 @@ elif opcion == "🧪 2. Componentes":
 
 
 # ============================================================
-# 4. TIPOS DE SUELO + MAPA
+# 3. TIPOS DE SUELO + MAPA
 # ============================================================
 
 elif opcion == "🗺️ 3. Tipos de suelos en Argentina":
@@ -1068,7 +1068,8 @@ elif opcion == "🗺️ 3. Tipos de suelos en Argentina":
         if datos.get("features"):
             st.success(f"Mapa cargado correctamente: {len(datos['features']):,} zonas.")
             mapa = crear_mapa(datos)
-            st_folium(mapa, width="100%", height=650, returned_objects=[], key="mapa_principal")
+            # Agregamos key única y estable para evitar que React rompa el DOM
+            st_folium(mapa, width="100%", height=650, returned_objects=[], key="mapa_suelos_arg")
             st.caption(
                 "Fuente: Instituto Geográfico Nacional (IGN), servicio geográfico ANIDA."
             )
@@ -1138,7 +1139,7 @@ elif opcion == "🌱 4. Importancia del suelo":
         st.markdown(f"✅ {accion}")
 
 # =========================================================
-# 5. ACTIVIDADES
+# 5. ACTIVIDADES / ENCUESTAS
 # =========================================================
 
 elif opcion == "🧠 5. Encuestas":
@@ -1199,7 +1200,7 @@ elif opcion == "🧠 5. Encuestas":
         respuesta = st.radio(
             "Elegí una opción:",
             pregunta["opciones"],
-            key=f"pregunta_{i}",
+            key=f"pregunta_quiz_{i}",
             label_visibility="collapsed",
         )
         respuestas.append(respuesta)
@@ -1265,12 +1266,17 @@ elif opcion == "🧠 5. Encuestas":
                 st.caption(pregunta["explicacion"])
 
 # ============================================================
-# 7. RECURSOS
+# 6. RECURSOS ADICIONALES
 # ============================================================
 
 elif opcion == "🔗 6. Recursos adicionales":
 
-    st.header("6. 🔗 Recursos adicionales")
+    cabecera(
+        "6",
+        "Recursos adicionales",
+        "Infografías y videos complementarios para seguir aprendiendo.",
+        "🔗",
+    )
 
     st.markdown("### 🖼️ Infografías para analizar")
 
@@ -1288,41 +1294,33 @@ elif opcion == "🔗 6. Recursos adicionales":
             "Ambiente y vínculo sociedad-naturaleza."
         )
 
-    st.markdown(
-        """
-        <div class="caja violeta">
-            <h3>💬 Para pensar</h3>
-            <p>
-            ¿Cómo se relacionan las ideas de estas infografías con el suelo?
-            ¿Por qué podemos decir que el suelo no es solamente un recurso
-            natural, sino también parte de las relaciones entre sociedad
-            y ambiente?
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # Se corrigió la estructura para usar las tarjetas integradas sin romper el HTML
+    tarjeta(
+        "💬 Para pensar",
+        "¿Cómo se relacionan las ideas de estas infografías con el suelo? ""¿Por qué podemos decir que el suelo no es solamente un recurso natural, sino también parte de las relaciones entre sociedad y ambiente?",
+        "💡",
+        "purple",
     )
 
     st.markdown("### 🎬 Videos")
 
     video(
         "VS0vakZiWnU",
-        "Video 1",
+        "El suelo y sus componentes",
         "Recurso audiovisual para introducir o reforzar el tema."
     )
 
     video(
         "LRv3k2tT_cc",
-        "Video 2",
+        "La formación del suelo",
         "Material complementario para continuar explorando."
     )
 
     video(
         "4Q4u-jP53VU",
-        "Video 3",
+        "Conservación del suelo",
         "Recurso audiovisual para ampliar y relacionar conceptos."
     )
-
 
 # =========================================================
 # 7. GLOSARIO
@@ -1340,6 +1338,7 @@ elif opcion == "📚 7. Glosario":
     busqueda = st.text_input(
         "🔎 Buscar término",
         placeholder="Por ejemplo: erosión, arcilla, materia orgánica...",
+        key="input_glosario_busqueda"
     )
 
     termino_busqueda = busqueda.lower().strip()
@@ -1387,4 +1386,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
