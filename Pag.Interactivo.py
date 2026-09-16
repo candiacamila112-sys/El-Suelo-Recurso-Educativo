@@ -1068,7 +1068,7 @@ elif opcion == "🗺️ 3. Tipos de suelos en Argentina":
         if datos.get("features"):
             st.success(f"Mapa cargado correctamente: {len(datos['features']):,} zonas.")
             mapa = crear_mapa(datos)
-            st_folium(mapa, width="100%", height=650, returned_objects=[])
+            st_folium(mapa, width="100%", height=650, returned_objects=[], key="mapa_principal")
             st.caption(
                 "Fuente: Instituto Geográfico Nacional (IGN), servicio geográfico ANIDA."
             )
