@@ -1,11 +1,11 @@
 import streamlit as st
 import folium
+from folium.plugins import Fullscreen
 from streamlit_folium import st_folium
-import requests
 from pathlib import Path
-from folium.plugins import Search
 import json
 import html
+import math
 # =========================================================
 # EL SUELO - RECURSO EDUCATIVO INTERACTIVO
 # Primera versión
@@ -19,7 +19,8 @@ st.set_page_config(
 )
 BASE_DIR = Path(__file__).resolve().parent
 IMAGENES_DIR = BASE_DIR / "imagenes"
-CACHE_SUELOS = BASE_DIR / "suelos_argentina.geojson"
+MAPA_INTERACTIVO = BASE_DIR / "suelos_interactivo.json"
+PROVINCIAS_INTERACTIVO = BASE_DIR / "provincias_interactivo.geojson"
 
 # =========================================================
 # ESTILOS
@@ -494,6 +495,7 @@ GLOSARIO = {
 # FUNCIONES
 # =========================================================
 
+
 def cabecera(numero, titulo, descripcion, emoji="🌱"):
     st.markdown(
         f"""
@@ -505,19 +507,26 @@ def cabecera(numero, titulo, descripcion, emoji="🌱"):
         """,
         unsafe_allow_html=True,
     )
+
+
 def buscar_imagen(nombre):
     """Busca la imagen en /imagenes, tolerando mayúsculas y extensiones comunes."""
     ruta = IMAGENES_DIR / nombre
     if ruta.is_file():
         return ruta
 
-    # Búsqueda tolerante: nombre y extensión sin distinguir mayúsculas/minúsculas.
     objetivo = Path(nombre).stem.lower()
     if IMAGENES_DIR.exists():
         for archivo in IMAGENES_DIR.iterdir():
-            if archivo.is_file() and archivo.stem.lower() == objetivo and archivo.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            if (
+                archivo.is_file()
+                and archivo.stem.lower() == objetivo
+                and archivo.suffix.lower()
+                in {".png", ".jpg", ".jpeg", ".webp"}
+            ):
                 return archivo
     return None
+
 
 def imagen(nombre, caption=None):
     ruta = buscar_imagen(nombre)
@@ -528,12 +537,19 @@ def imagen(nombre, caption=None):
     else:
         disponibles = []
         if IMAGENES_DIR.exists():
-            disponibles = [p.name for p in IMAGENES_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
+            disponibles = [
+                p.name
+                for p in IMAGENES_DIR.iterdir()
+                if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+            ]
         st.error(f"No se encontró la imagen '{nombre}' en la carpeta imagenes.")
         if disponibles:
             st.info("Imágenes detectadas: " + ", ".join(disponibles))
         else:
-            st.info(f"Creá la carpeta '{IMAGENES_DIR}' y colocá allí tus archivos PNG.")
+            st.info(
+                f"Creá la carpeta '{IMAGENES_DIR}' y colocá allí tus archivos PNG."
+            )
+
 
 def tarjeta(titulo, texto, icono="", color="green"):
     st.markdown(
@@ -545,195 +561,177 @@ def tarjeta(titulo, texto, icono="", color="green"):
         """,
         unsafe_allow_html=True,
     )
+
+
 @st.cache_data(show_spinner=False)
-def descargar_suelos():
-    if CACHE_SUELOS.exists():
+def cargar_suelos_interactivo():
+    """Carga el mapa educativo ya simplificado y agrupado."""
+    if MAPA_INTERACTIVO.exists():
         try:
-            return json.loads(CACHE_SUELOS.read_text(encoding="utf-8"))
-        except Exception:
+            datos = json.loads(MAPA_INTERACTIVO.read_text(encoding="utf-8"))
+            if datos.get("features"):
+                return datos
+        except (OSError, json.JSONDecodeError):
             pass
+    return {"type": "FeatureCollection", "features": []}
 
-    features = []
-    offset = 0
-    cantidad = 1000
 
-    while True:
-        params = {
-            "where": "1=1",
-            "outFields": "*",
-            "returnGeometry": "true",
-            "f": "geojson",
-            "resultOffset": offset,
-            "resultRecordCount": cantidad,
-        }
-
-        respuesta = requests.get(URL_IGN, params=params, timeout=60)
-        respuesta.raise_for_status()
-
-        nuevos = respuesta.json().get("features", [])
-        if not nuevos:
-            break
-
-        features.extend(nuevos)
-
-        if len(nuevos) < cantidad:
-            break
-
-        offset += cantidad
-
-    datos = {"type": "FeatureCollection", "features": features}
-
-    if features:
+def cargar_provincias_interactivo():
+    """Carga los límites provinciales simplificados."""
+    if PROVINCIAS_INTERACTIVO.exists():
         try:
-            CACHE_SUELOS.write_text(
-                json.dumps(datos, ensure_ascii=False),
-                encoding="utf-8"
-            )
-        except Exception:
+            datos = json.loads(PROVINCIAS_INTERACTIVO.read_text(encoding="utf-8"))
+            if datos.get("features"):
+                return datos
+        except (OSError, json.JSONDecodeError):
             pass
+    return {"type": "FeatureCollection", "features": []}
 
-    return datos
 
 def obtener_suelo(feature):
-    valor = feature.get("properties", {}).get(CAMPO_SUELO, "")
+    """Obtiene el tipo de suelo desde NEW_OR_07."""
+    props = feature.get("properties", {})
+    valor = props.get(CAMPO_SUELO, "")
     return str(valor).strip() if valor else "Sin clasificar"
 
+
+def obtener_provincia(feature):
+    """Obtiene la provincia desde PROV."""
+    props = feature.get("properties", {})
+    valor = props.get("PROV", "")
+    return str(valor).strip() if valor else "Provincia no disponible"
+
 def color_suelo(nombre):
-    if nombre in INFO_SUELOS:
-        return INFO_SUELOS[nombre][0]
+    """Asigna el color correspondiente según tu diccionario INFO_SUELOS."""
+    if not nombre or nombre == "Sin clasificar":
+        return "#a8d5ba"  # Verde pastel por defecto
 
-    nombre_l = nombre.lower()
+    nombre_normalizado = nombre.lower().strip()
 
-    for clave, info in INFO_SUELOS.items():
-        if clave.lower() in nombre_l or nombre_l in clave.lower():
-            return info[0]
+    if "INFO_SUELOS" in globals():
+        for clave, info in INFO_SUELOS.items():
+            clave_norm = clave.lower().strip()
+            if clave_norm in nombre_normalizado or nombre_normalizado in clave_norm:
+                return info[0] if isinstance(info, (list, tuple)) else info
 
-    return "#BDC3C7"
+    colores_palette = [
+        "#f4c2c2",  # Rosa pastel
+        "#f7d698",  # Durazno pastel
+        "#c2e0c6",  # Verde claro pastel
+        "#b3c5e5",  # Azul suave pastel
+        "#d1b3e5",  # Violeta pastel
+        "#fce1e4",  # Crema rosa
+    ]
+
+    indice = sum(ord(char) for char in nombre) % len(colores_palette)
+    return colores_palette[indice]
+
 
 def estilo_suelo(feature):
     return {
         "fillColor": color_suelo(obtener_suelo(feature)),
-        "color": "#555555",
-        "weight": 0.5,
-        "fillOpacity": 0.72,
+        "color": "#4a7c59",
+        "weight": 0.8,
+        "fillOpacity": 0.65,
     }
+
 
 def estilo_hover(feature):
     return {
-        "fillOpacity": 0.95,
+        "fillColor": "#ffe082",  # Resaltado amarillo pastel al pasar el cursor
+        "fillOpacity": 0.9,
         "weight": 2,
         "color": "#17324D",
     }
 
-def crear_mapa(datos):
+
+def detectar_propiedad_texto(datos):
+    """Mantiene compatibilidad con GeoJSON anteriores."""
+    if not datos.get("features"):
+        return None
+    props = datos["features"][0].get("properties", {})
+    return CAMPO_SUELO if CAMPO_SUELO in props else None
+
+
+def _crear_mapa(datos):
+    """Mapa educativo liviano: 99 áreas agrupadas + límites provinciales."""
     mapa = folium.Map(
-        location=[-38.4, -63.6],
+        location=[-38.416097, -63.616672],
         zoom_start=4,
-        tiles=None,
+        tiles="CartoDB positron",
         control_scale=True,
+        prefer_canvas=True,
     )
 
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-        attr="&copy; OpenStreetMap &copy; CARTO",
-        name="Mapa claro",
-    ).add_to(mapa)
+    Fullscreen(position="topright").add_to(mapa)
 
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri",
-        name="Satélite",
+        attr="Esri", name="Vista satelital", overlay=False, control=True,
     ).add_to(mapa)
 
-    # Los campos pueden variar según la versión del servicio del IGN.
-    # Usamos solamente los que realmente existen para evitar que Folium falle.
+    tooltip_config = None
+    popup_config = None
     features = datos.get("features", [])
-    campos_disponibles = set()
     if features:
-        campos_disponibles = set(features[0].get("properties", {}).keys())
+        props = features[0].get("properties", {})
+        campos = []
+        aliases = []
+        if "PROV" in props:
+            campos.append("PROV"); aliases.append("📍 Provincia:")
+        if CAMPO_SUELO in props:
+            campos.append(CAMPO_SUELO); aliases.append("🌱 Tipo de suelo:")
+        if campos:
+            tooltip_config = folium.GeoJsonTooltip(
+                fields=campos, aliases=aliases, localize=True, sticky=True, labels=True,
+                style="""
+                    background-color: #ffffff; color: #17324D;
+                    font-family: Arial, sans-serif; font-size: 13px; font-weight: bold;
+                    border-radius: 6px; padding: 8px 12px;
+                    border: 1px solid #dcdcdc; box-shadow: 0px 3px 8px rgba(0,0,0,0.2);
+                """,
+            )
+            popup_config = folium.GeoJsonPopup(
+                fields=campos, aliases=aliases, localize=True, labels=True,
+                style="""background-color: #ffffff; color: #17324D; font-family: Arial, sans-serif; font-size: 13px; font-weight: bold;""",
+            )
 
-    campos = []
-    aliases = []
-    for campo, alias in [
-        (CAMPO_SUELO, "Tipo de suelo:"),
-        ("PROV", "Provincia:"),
-        ("NEW_SUB_07", "Suborden:"),
-        ("NEW_GGR_07", "Gran grupo:"),
-    ]:
-        if campo in campos_disponibles:
-            campos.append(campo)
-            aliases.append(alias)
+    folium.GeoJson(
+        datos, name="🌱 Tipos de suelo", style_function=estilo_suelo,
+        highlight_function=estilo_hover, tooltip=tooltip_config, popup=popup_config,
+        smooth_factor=1.0,
+    ).add_to(mapa)
 
-    tooltip = None
-    if campos:
-        tooltip = folium.GeoJsonTooltip(
-            fields=campos,
-            aliases=aliases,
-            sticky=False,
-            labels=True,
-            style=(
-                "background-color:white;color:#222;"
-                "font-family:Arial;font-size:13px;padding:10px;"
-                "border-radius:8px;"
-            ),
-        )
-
-    capa = folium.GeoJson(
-        datos,
-        name="🌱 Suelos",
-        style_function=estilo_suelo,
-        highlight_function=estilo_hover,
-        tooltip=tooltip,
-    )
-
-    capa.add_to(mapa)
-
-    try:
-        Search(
-            layer=capa,
-            search_label=CAMPO_SUELO,
-            placeholder="🔎 Buscar tipo de suelo...",
-            collapsed=False,
-            search_zoom=6,
+    provincias = cargar_provincias_interactivo()
+    if provincias.get("features"):
+        folium.GeoJson(
+            provincias, name="Límites provinciales",
+            style_function=lambda feature: {"fillOpacity": 0, "color": "#ffffff", "weight": 1.3, "opacity": 0.9},
         ).add_to(mapa)
-    except Exception:
-        pass
 
-    items = ""
-
-    for nombre, (color, emoji, _) in INFO_SUELOS.items():
-        items += f"""
-        <div style="margin-bottom:6px;display:flex;align-items:center;">
-            <span style="
-                width:14px;height:14px;background:{color};
-                display:inline-block;margin-right:7px;
-                border:1px solid #555;border-radius:3px;">
-            </span>
-            <span style="color:#17324D;">{emoji} {html.escape(nombre)}</span>
-        </div>
-        """
-
-    leyenda = f"""
-    <div style="
-        position:fixed;top:75px;right:18px;z-index:9999;
-        width:230px;max-height:420px;overflow-y:auto;
-        background:rgba(255,255,255,.96);
-        border-radius:14px;padding:14px;
-        box-shadow:0 3px 12px rgba(0,0,0,.18);
-        font-family:Arial;font-size:12px;">
-        <div style="
-            font-size:16px;font-weight:bold;
-            margin-bottom:9px;color:#145A32;">
-            🌱 Referencias
-        </div>
-        {items}
-    </div>
+    html_leyenda = """
+    <div style="position:fixed;bottom:30px;left:20px;width:220px;z-index:9999;
+        background-color:rgba(255,255,255,.96);padding:12px;border-radius:8px;
+        border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.15);
+        font-family:Arial,sans-serif;font-size:12px;color:#17324D;">
+        <b style="font-size:13px;display:block;margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:4px;">🌱 Tipos de suelo</b>
     """
-
-    mapa.get_root().html.add_child(folium.Element(leyenda))
-    folium.LayerControl(collapsed=False).add_to(mapa)
-
+    for nombre_suelo, info in INFO_SUELOS.items():
+        color = info[0] if isinstance(info, (list, tuple)) else info
+        html_leyenda += f"""<div style="display:flex;align-items:center;margin-bottom:5px;">
+            <span style="background-color:{color};width:14px;height:14px;display:inline-block;border-radius:3px;margin-right:8px;border:1px solid #aaa;"></span>
+            <span style="color:#17324D;">{html.escape(nombre_suelo)}</span></div>"""
+    html_leyenda += "</div>"
+    mapa.get_root().html.add_child(folium.Element(html_leyenda))
+    folium.LayerControl(collapsed=True).add_to(mapa)
     return mapa
+
+
+@st.cache_resource(show_spinner=False)
+def crear_mapa_archivo(nombre_archivo, fecha_modificacion):
+    ruta = BASE_DIR / nombre_archivo
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    return _crear_mapa(datos)
 
 def video(video_id, titulo, descripcion):
     st.markdown(
@@ -748,7 +746,6 @@ def video(video_id, titulo, descripcion):
         """,
         unsafe_allow_html=True,
     )
-
 # =========================================================
 # ESTADO DE LA APLICACIÓN
 # =========================================================
@@ -1047,7 +1044,7 @@ elif opcion == "🗺️ 3. Tipos de suelos en Argentina":
     cabecera(
         "3",
         "Tipos de suelos en Argentina",
-        "Explorá la distribución de distintos tipos de suelo mediante un mapa interactivo basado en datos del IGN.",
+        "Explorá la distribución general de los tipos de suelo mediante un mapa interactivo educativo.",
         "🗺️",
     )
 
@@ -1055,26 +1052,59 @@ elif opcion == "🗺️ 3. Tipos de suelos en Argentina":
         """
         <div class="map-note">
         🗺️ <b>Mapa interactivo:</b> pasá el cursor sobre las áreas,
-        utilizá el buscador o cambiá entre mapa claro y vista satelital.
+        utilizá la leyenda, hacé zoom y cambiá entre mapa claro y vista satelital.
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     try:
-        with st.spinner("Cargando información geográfica de los suelos..."):
-            datos = descargar_suelos()
+        with st.spinner("Cargando mapa interactivo..."):
+            datos = cargar_suelos_interactivo()
 
         if datos.get("features"):
-            st.success(f"Mapa cargado correctamente: {len(datos['features']):,} zonas.")
-            mapa = crear_mapa(datos)
-            # Agregamos key única y estable para evitar que React rompa el DOM
-            st_folium(mapa, width="100%", height=650, returned_objects=[], key="mapa_suelos_arg")
+            fecha_mapa = MAPA_INTERACTIVO.stat().st_mtime_ns
+            st.success(f"Mapa educativo cargado: {len(datos['features']):,} áreas interactivas.")
+            mapa = crear_mapa_archivo(MAPA_INTERACTIVO.name, fecha_mapa)
+            st_folium(
+                mapa,
+                width="100%",
+                height=650,
+                returned_objects=[],
+                key="mapa_suelos_arg",
+            )
             st.caption(
                 "Fuente: Instituto Geográfico Nacional (IGN), servicio geográfico ANIDA."
             )
+
+            st.markdown("---")
+            st.markdown("### 📖 Guía de características de los suelos")
+            st.markdown(
+                "Explorá las propiedades principales de cada tipo de suelo presente en el recurso:"
+            )
+
+            if INFO_SUELOS:
+                nombres_suelos = list(INFO_SUELOS.keys())
+                pestanas = st.tabs([f"🌱 {nombre}" for nombre in nombres_suelos])
+
+                for i, nombre in enumerate(nombres_suelos):
+                    color, emoji, descripcion = INFO_SUELOS[nombre]
+                    with pestanas[i]:
+                        st.markdown(
+                            f"""
+                            <div class="card" style="border-left:6px solid {color};padding:18px;margin-top:10px;">
+                                <h4 style="color:#17324D;margin-top:0;">{emoji} {nombre}</h4>
+                                <p style="font-size:.95rem;line-height:1.5;color:#2c3e50;">
+                                    {descripcion}
+                                </p>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
         else:
-            st.warning("No se encontraron datos geográficos.")
+            st.warning(
+                "No se encontraron datos del mapa. Verificá que 'suelos_mapa_web.json' o 'suelos_liviano.json' estén junto a app.py."
+            )
 
     except Exception as error:
         st.error("No fue posible cargar el mapa en este momento.")
