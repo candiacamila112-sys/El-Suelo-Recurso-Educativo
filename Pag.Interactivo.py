@@ -740,14 +740,14 @@ def video(video_id, titulo, descripcion):
         f"""
         <div class="video-card">
             <h3 style="margin-top:0;color:#17324D;">🎬 {titulo}</h3>
-            <p class="small-note">{descripcion}</p>
+            <p class="video-description">{descripcion}</p>
+            <div class="video-frame">
+                <iframe src="https://www.youtube.com/embed/{video_id}" allowfullscreen></iframe>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
-
-    st.video(f"https://www.youtube.com/watch?v={video_id}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
 # ESTADO DE LA APLICACIÓN
